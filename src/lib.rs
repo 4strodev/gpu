@@ -9,7 +9,7 @@ mod state;
 
 pub fn run() -> anyhow::Result<()> {
     Builder::new()
-        .filter_level(LevelFilter::Info)
+        .filter_level(LevelFilter::Debug)
         .target(Target::Stdout)
         .init();
 

@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use wgpu::{RenderPipeline, ShaderModuleDescriptor};
 use winit::{event_loop::ActiveEventLoop, keyboard::KeyCode, window::Window};
 
 pub struct State {
@@ -9,6 +10,8 @@ pub struct State {
     config: wgpu::SurfaceConfiguration,
     is_surface_configured: bool,
     render_pipeline: wgpu::RenderPipeline,
+    color_render_pipeline: wgpu::RenderPipeline,
+    color_enabled: bool,
     pub window: Arc<Window>,
 }
 
@@ -60,20 +63,44 @@ impl State {
             desired_maximum_frame_latency: 2,
         };
 
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
+        let render_pipeline = State::get_pipeline("shader_brown.wgsl", &device, &config)?;
+        let color_render_pipeline = State::get_pipeline("shader_color.wgsl", &device, &config)?;
+        Ok(Self {
+            surface,
+            device,
+            queue,
+            config,
+            is_surface_configured: false,
+            render_pipeline,
+            color_render_pipeline: color_render_pipeline,
+            color_enabled: false,
+            window,
+        })
+    }
+
+    fn get_pipeline(
+        shader_name: &str,
+        device: &wgpu::Device,
+        config: &wgpu::SurfaceConfiguration,
+    ) -> Result<RenderPipeline, std::io::Error> {
+        let shader_file = format!("src/shaders/{}", shader_name);
+        log::debug!("shader file {}", shader_file);
+
+        let shader_source = std::fs::read_to_string(shader_file)?;
+        let shader = device.create_shader_module(ShaderModuleDescriptor {
+            label: Some(format!("Sahder {}", shader_name).as_str()),
+            source: wgpu::ShaderSource::Wgsl(shader_source.into()),
         });
 
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Render Pipeline Layout"),
+                label: Some(format!("Render Pipeline Layout {}", shader_name).as_str()),
                 bind_group_layouts: &[],
                 push_constant_ranges: &[],
             });
 
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Render Pipeline"),
+            label: Some(format!("Render Pipeline {}", shader_name).as_str()),
             layout: Some(&render_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader,
@@ -110,20 +137,13 @@ impl State {
             cache: None,
         });
 
-        Ok(Self {
-            surface,
-            device,
-            queue,
-            config,
-            is_surface_configured: false,
-            render_pipeline,
-            window,
-        })
+        return Ok(render_pipeline);
     }
 
-    pub fn handle_key(&self, event_loop: &ActiveEventLoop, code: KeyCode, is_pressed: bool) {
+    pub fn handle_key(&mut self, event_loop: &ActiveEventLoop, code: KeyCode, is_pressed: bool) {
         match (code, is_pressed) {
             (KeyCode::Escape, true) => event_loop.exit(),
+            (KeyCode::Space, true) => self.color_enabled = !self.color_enabled,
             _ => {}
         }
     }
@@ -181,7 +201,13 @@ impl State {
                 timestamp_writes: None,
             });
 
-            render_pass.set_pipeline(&self.render_pipeline);
+            let pipeline = if self.color_enabled {
+                &self.render_pipeline
+            } else {
+                &self.color_render_pipeline
+            };
+
+            render_pass.set_pipeline(pipeline);
             render_pass.draw(0..3, 0..1);
         };
 
