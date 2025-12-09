@@ -67,10 +67,6 @@ impl ApplicationHandler<State> for App {
                     }
                 }
             }
-            WindowEvent::CursorMoved { .. } => match state.render() {
-                Ok(_) => log::info!("Rendered successfully"),
-                Err(err) => log::error!("Unable to render {}", err),
-            },
             WindowEvent::KeyboardInput {
                 event:
                     KeyEvent {

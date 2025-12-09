@@ -1,7 +1,9 @@
 use std::sync::Arc;
 
-use wgpu::{RenderPipeline, ShaderModuleDescriptor};
+use wgpu::{RenderPipeline, ShaderModuleDescriptor, util::DeviceExt};
 use winit::{event_loop::ActiveEventLoop, keyboard::KeyCode, window::Window};
+
+use crate::{INDICES, VERTICES, vertex::Vertex};
 
 pub struct State {
     surface: wgpu::Surface<'static>,
@@ -10,8 +12,9 @@ pub struct State {
     config: wgpu::SurfaceConfiguration,
     is_surface_configured: bool,
     render_pipeline: wgpu::RenderPipeline,
-    color_render_pipeline: wgpu::RenderPipeline,
-    color_enabled: bool,
+    vertex_buffer: wgpu::Buffer,
+    index_buffer: wgpu::Buffer,
+    num_indices: u32,
     pub window: Arc<Window>,
 }
 
@@ -63,8 +66,22 @@ impl State {
             desired_maximum_frame_latency: 2,
         };
 
-        let render_pipeline = State::get_pipeline("shader_brown.wgsl", &device, &config)?;
-        let color_render_pipeline = State::get_pipeline("shader_color.wgsl", &device, &config)?;
+        let render_pipeline = State::get_pipeline("shader.wgsl", &device, &config)?;
+
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Vertex Buffer"),
+            contents: bytemuck::cast_slice(VERTICES),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+
+        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor{
+            label: Some("Index Buffer"),
+            contents: bytemuck::cast_slice(INDICES),
+            usage: wgpu::BufferUsages::INDEX
+        });
+
+        let num_indices = INDICES.len() as u32;
+
         Ok(Self {
             surface,
             device,
@@ -72,8 +89,9 @@ impl State {
             config,
             is_surface_configured: false,
             render_pipeline,
-            color_render_pipeline: color_render_pipeline,
-            color_enabled: false,
+            vertex_buffer,
+            index_buffer,
+            num_indices,
             window,
         })
     }
@@ -83,7 +101,7 @@ impl State {
         device: &wgpu::Device,
         config: &wgpu::SurfaceConfiguration,
     ) -> Result<RenderPipeline, std::io::Error> {
-        let shader_file = format!("src/shaders/{}", shader_name);
+        let shader_file = format!("shaders/{}", shader_name);
         log::debug!("shader file {}", shader_file);
 
         let shader_source = std::fs::read_to_string(shader_file)?;
@@ -106,7 +124,7 @@ impl State {
                 module: &shader,
                 entry_point: Some("vs_main"),
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
-                buffers: &[],
+                buffers: &[Vertex::desc()],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
@@ -143,7 +161,6 @@ impl State {
     pub fn handle_key(&mut self, event_loop: &ActiveEventLoop, code: KeyCode, is_pressed: bool) {
         match (code, is_pressed) {
             (KeyCode::Escape, true) => event_loop.exit(),
-            (KeyCode::Space, true) => self.color_enabled = !self.color_enabled,
             _ => {}
         }
     }
@@ -201,14 +218,12 @@ impl State {
                 timestamp_writes: None,
             });
 
-            let pipeline = if self.color_enabled {
-                &self.render_pipeline
-            } else {
-                &self.color_render_pipeline
-            };
+            let pipeline = &self.render_pipeline;
 
             render_pass.set_pipeline(pipeline);
-            render_pass.draw(0..3, 0..1);
+            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+            render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
         };
 
         self.queue.submit(std::iter::once(encoder.finish()));
